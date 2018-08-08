@@ -3,7 +3,7 @@ title: "README"
 author: "Samuel Ash"
 date: "`r Sys.Date()`"
 output: 
-  github_document:
+  github_document
 ---
 
 # Overview of Project
