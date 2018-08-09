@@ -75,7 +75,8 @@ copd_pre = inner_join(copd_base,copd_delta)
 # add time variables and remove variables that are all NA
 copd_base_full = left_join(copd_pre,copd_time,by="sid") %>% remove_empty()
 
-### mortality dataset ###
+### mortality and LFU dataset addition to baseline dataset ###
+# import datasets
 copd_mort <- read_delim("data/raw_data/COPDGene_Mortality_Surv_2016dec.txt", 
                                                           "\t", escape_double = FALSE, col_types = cols(DOD_merged = col_date(format = "%m/%d/%Y"), 
                                                                                                         Phase1_date = col_date(format = "%m/%d/%Y"), 
@@ -83,3 +84,32 @@ copd_mort <- read_delim("data/raw_data/COPDGene_Mortality_Surv_2016dec.txt",
                                                                                                         date_last_SSDI_search = col_date(format = "%m/%d/%Y"), 
                                                                                                         days_followed = col_number(), last_LFU_survey_date = col_date(format = "%m/%d/%Y")), 
                                                           trim_ws = TRUE)
+copd_lfu <- read_delim("data/raw_data/LFU_SidLevel_w_Comorbid_31JUL17.txt", 
+                       "\t", escape_double = FALSE, col_types = cols( 
+                                                                     reportedSmokingStatusString = col_skip()), 
+                       trim_ws = TRUE) 
+# merge datasets
+copd_clinical_full_1 = left_join(copd_base_full,copd_mort)
+copd_clinical_full = left_join(copd_clinical_full_1,copd_lfu) %>% remove_empty()
+
+### local histogram data using third training set ###
+copd_lh = read_excel("data/raw_data/LHsubtypes_2016_09_21_v2.xlsx") %>% clean_names()
+copd_pre1 = left_join(copd_clinical_full,copd_lh) %>% remove_empty()
+
+### body composition from manual measurements ###
+copd_body <- Body_Composition_COPDGene <- read_csv("data/raw_data/Body Composition COPDGene.csv")
+copd_pre2 <- left_join(copd_pre1,copd_body) %>% remove_empty()
+
+### biomarker data from Russ Bowler (RBM only) ###
+copd_bio <- read_csv("data/raw_data/COPDGene_Bowler_RBM_raw.csv") %>% clean_names() %>% remove_empty()
+copd_full <- left_join(copd_pre2,copd_bio)
+
+#############additional data manipulation################
+# rename gender
+copd_full = copd_full %>% mutate(sex = ifelse(gender==2,"female","male"))
+# normalize imaging variables
+copd_full = copd_full %>% mutate(percent_ild_z = percent_ild, percent_emphysema_z = percent_emphysema, awt_seg_thirona_z = awt_seg_thirona, PMA_z = PMA) %>% 
+  mutate_at(scale,.vars = vars(percent_ild_z, percent_emphysema_z, awt_seg_thirona_z, PMA_z))
+
+### dataset with no missing imaging data for clustering ###
+copd_full_imaging = copd_full %>% filter(!is.na(percent_ild), !is.na(percent_emphysema), !is.na(awt_seg_thirona), !is.na(PMA))
