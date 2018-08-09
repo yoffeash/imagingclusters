@@ -41,5 +41,18 @@ sgrq_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,sgrq_score_tota
   stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
   stat_compare_means(label.y = 150, method="anova")     # Add global p-value
 
+fev1prog_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,fev1_utah_delta)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("FEV1 Change") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+distwalked_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,distwalked_delta)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("6MWD Change") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
 
 plot_grid(fev1_cluster_plot,fvc_cluster_plot,sixmin_cluster_plot,sgrq_cluster_plot, ncol=2)
+
