@@ -157,8 +157,9 @@ copd_full <- left_join(copd_pre2,copd_bio)
 # rename gender
 copd_full = copd_full %>% mutate(sex = ifelse(gender==2,"female","male"))
 # normalize imaging variables
-copd_full = copd_full %>% mutate(percent_ild_z = percent_ild, percent_emphysema_z = percent_emphysema, awt_seg_thirona_z = awt_seg_thirona, PMA_z = PMA) %>% 
-  mutate_at(scale,.vars = vars(percent_ild_z, percent_emphysema_z, awt_seg_thirona_z, PMA_z))
+copd_full = copd_full %>% mutate(percent_ild_z = percent_ild, percent_emphysema_z = percent_emphysema, 
+                                 percent_normal_z = percent_normal, awt_seg_thirona_z = awt_seg_thirona, PMA_z = PMA) %>% 
+  mutate_at(scale,.vars = vars(percent_ild_z, percent_emphysema_z, percent_normal_z, awt_seg_thirona_z, PMA_z))
 
 ### dataset with no missing imaging data for clustering ###
 copd_full_imaging = copd_full %>% filter(!is.na(percent_ild), !is.na(percent_emphysema), !is.na(awt_seg_thirona), !is.na(PMA))
@@ -175,15 +176,16 @@ Using k means (k=3 based on DECAMP).  Note that the clusters are relabeled to co
 
 # initial clustering based on imaging features - see https://www.datacamp.com/community/tutorials/k-means-clustering-r
 set.seed(9)
-copd_cluster_pre = copd_full_imaging %>% select(sid,percent_ild_z,percent_emphysema_z,PMA_z,awt_seg_thirona_z) # dataset with just SID and normalized imaging variables
-km = kmeans(copd_cluster_pre[,2:5],3)
+copd_cluster_pre = copd_full_imaging %>% select(sid,percent_ild_z,percent_emphysema_z,
+                                                percent_normal_z,PMA_z,awt_seg_thirona_z) # dataset with just SID and normalized imaging variables
+km = kmeans(copd_cluster_pre[,2:6],3)
 copd_full_imaging$cluster <- as.factor(km$cluster) # add initial cluster label to dataset of people with complete imaging data
 copd_full_imaging = copd_full_imaging %>% mutate(cluster_decamp = ifelse(cluster=="1","B", ifelse(cluster=="2","C","A")))
 ```
 
 ### Cluster appearance:
 ```{r cluster_plot,fig.width=10,fig.height=7}
-autoplot(prcomp(copd_cluster_pre[,2:5]), data=copd_full_imaging, colour='cluster_decamp')
+autoplot(prcomp(copd_cluster_pre[,2:6]), data=copd_full_imaging, colour='cluster_decamp')
 ```
 
 ### Comparison of clusters based on imaging characteristcs:

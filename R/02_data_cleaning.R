@@ -110,8 +110,9 @@ copd_full <- left_join(copd_pre2,copd_bio)
 # rename gender
 copd_full = copd_full %>% mutate(sex = ifelse(gender==2,"female","male"))
 # normalize imaging variables
-copd_full = copd_full %>% mutate(percent_ild_z = percent_ild, percent_emphysema_z = percent_emphysema, awt_seg_thirona_z = awt_seg_thirona, PMA_z = PMA) %>% 
-  mutate_at(scale,.vars = vars(percent_ild_z, percent_emphysema_z, awt_seg_thirona_z, PMA_z))
+copd_full = copd_full %>% mutate(percent_ild_z = percent_ild, percent_emphysema_z = percent_emphysema, 
+                                 percent_normal_z = percent_normal, awt_seg_thirona_z = awt_seg_thirona, PMA_z = PMA) %>% 
+  mutate_at(scale,.vars = vars(percent_ild_z, percent_emphysema_z, percent_normal_z, awt_seg_thirona_z, PMA_z))
 
 ### dataset with no missing imaging data for clustering ###
 copd_full_imaging = copd_full %>% filter(!is.na(percent_ild), !is.na(percent_emphysema), !is.na(awt_seg_thirona), !is.na(PMA))
