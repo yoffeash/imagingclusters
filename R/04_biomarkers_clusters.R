@@ -1,6 +1,7 @@
 ### biomarkers by cluster ###
-cluster_comparisons <- list( c("1", "2"), c("2", "3"), c("1", "3") )
+cluster_comparisons <- list( c("A", "B"), c("B", "C"), c("A", "C") )
 
+### plots of biomarkers by cluster ###
 crp_cluster_plot =  ggplot(copd_full_imaging, aes(cluster_decamp,crp)) + 
   geom_boxplot(fill="gray") + 
   ylab("CRP") +

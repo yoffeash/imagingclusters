@@ -1,4 +1,5 @@
-## 01 packages use
+## 01 packages used
+library(devtools)
 library(tidyverse)
 library(janitor)
 library(cowplot)
@@ -7,3 +8,4 @@ library(survminer)
 library(readxl)
 library(ggfortify)
 library(ggpubr)
+library(rmarkdown)

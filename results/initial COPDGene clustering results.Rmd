@@ -1,0 +1,424 @@
+---
+title: "COPDGene/DECAMP Radiologic Clustering Project"
+author: "Samuel Ash"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    fig_caption: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE,error=FALSE,error=FALSE,warning=FALSE,echo=FALSE)
+```
+
+# Overview
+This document describes the initial results of the imaging clusters from COPDGene based on prior DECAMP clustering.  This includes the baseline clinical characteristics and biomarkers as well as longitudinal analyses including change in FEV1, change in 6WMD, mortality, and exacerbation rates.
+
+# Load Libraries and Data
+
+## Libraries
+
+```{r load_libs}
+library(devtools)
+library(tidyverse)
+library(janitor)
+library(cowplot)
+library(survival)
+library(survminer)
+library(readxl)
+library(ggfortify)
+library(ggpubr)
+library(rmarkdown)
+```
+
+## Data
+COPDGene datasets used include:
+1) Baseline and longitudinal clinical dataset from October 9, 2017
+2) Mortality dataset from December 2016
+3) LFU dataset from July 2017
+4) LH dataset from September 21, 2017 (using third set of LH training data)
+5) RBM dataset
+6) body composition dataset using manual measurements
+
+```{r data_import}
+## 02 Initial Import and Cleaning of COPDGene Data ##
+## edited 2018_08_08
+
+#### general COPDGene database ####
+copd <- read_delim("../data/raw_data/COPDGene_P1P2_All_Visit_09OCT17.txt", 
+                   "\t", escape_double = FALSE, trim_ws = TRUE)
+# clean variable names and remove columns and rows with all NA
+copd_clean <- clean_names(copd) %>% 
+  rename(dlco_pp=dlc_opp, 
+         tlc_pp_race_adjusted=tl_cpp_race_adjusted,
+         fvcpp_utah=fv_cpp_utah,
+         dlco_raw=d_lco_raw) %>% 
+  remove_empty()
+## calculate change variables ##
+# remove subset of variables that we are interested in their change over time
+copd_change = copd_clean %>% select(sid,visitnum,height_cm,weight_kg,
+                                     distwalked,sgrq_score_total,dlco_pp, dlco_raw,
+                                     tlc_pp_race_adjusted,fev1pp_utah,fvcpp_utah,
+                                     fev1_fvc_utah,pct_emph_thirona,tlc_thirona,
+                                     pct_gas_trap_thirona,awt_seg_thirona,
+                                     fev1_utah,fvc_utah)
+# spread to wide format
+copd_change_wide = copd_change %>% 
+  tidyr::gather_(key="variable", value="value", 
+                 c("height_cm",
+                   "weight_kg",
+                   "distwalked",
+                   "sgrq_score_total",
+                   "dlco_pp", 
+                   "dlco_raw",
+                   "tlc_pp_race_adjusted",
+                   "fev1pp_utah",
+                   "fvcpp_utah",
+                   "fev1_fvc_utah",
+                   "pct_emph_thirona",
+                   "tlc_thirona",
+                   "pct_gas_trap_thirona",
+                   "awt_seg_thirona",
+                   "fev1_utah",
+                   "fvc_utah"
+                   )) %>% 
+  tidyr::unite("time_by_variable", variable, visitnum, remove=T) %>%  
+  tidyr::spread(key=time_by_variable, value=value)                
+# calculate change between two variables
+copd_delta = copd_change_wide %>% 
+  mutate(awt_seg_thirona_delta = awt_seg_thirona_2 - awt_seg_thirona_1,
+         distwalked_delta = distwalked_2 - distwalked_1,
+         dlco_pp_delta = dlco_pp_2 - dlco_pp_1,
+         dlco_raw_delta = dlco_pp_2 - dlco_raw_1,
+         fev1_fvc_utah_delta = fev1_fvc_utah_2 - fev1_fvc_utah_1,
+         fev1_utah_delta = fev1_utah_2 - fev1_utah_1,
+         fev1pp_utah_delta = fev1pp_utah_2 - fev1pp_utah_1,
+         fvc_utah_delta = fvc_utah_2 - fvc_utah_1,
+         fvcpp_utah_delta = fvcpp_utah_2 - fvcpp_utah_1,
+         height_cm_delta = height_cm_2 - height_cm_1,
+         pct_emph_thirona_delta = pct_emph_thirona_2 - pct_emph_thirona_1,
+         pct_gas_trap_thirona_delta = pct_gas_trap_thirona_2 - pct_gas_trap_thirona_1,
+         sgrq_score_total_delta = sgrq_score_total_2 - sgrq_score_total_1,
+         tlc_pp_race_adjusted_delta = tlc_pp_race_adjusted_2 - tlc_pp_race_adjusted_1,
+         tlc_thirona_delta = tlc_thirona_2 - tlc_thirona_1,
+         weight_kg_delta = weight_kg_2 - weight_kg_1) %>% 
+  select(sid,awt_seg_thirona_delta,distwalked_delta,dlco_pp_delta,
+         fev1_fvc_utah_delta,fev1_utah_delta,fev1pp_utah_delta,fvc_utah_delta,fvcpp_utah_delta,
+         height_cm_delta,pct_emph_thirona_delta,pct_gas_trap_thirona_delta,sgrq_score_total_delta,
+         tlc_pp_race_adjusted_delta,weight_kg_delta)
+# extract time between visits and copdgene calculated change variables 
+copd_time = copd_clean %>% select(sid,days_ct1_ct2,days_phase1_phase2,
+                                   change_tlc_thirona, change_pct_emph_thirona, change_pct_gas_trap_thirona,
+                                   change_p1_p2_fev1_ml,change_p1_p2_fev1pp) %>% 
+  filter(days_phase1_phase2>0)
+# remove visit 2 data and finalgold -2 from base dataset 
+copd_base = copd_clean %>% filter(visitnum==1) %>% filter(final_gold > -2) %>% select(-visitnum) 
+# merge delta variable data with baseline data
+copd_pre = inner_join(copd_base,copd_delta)
+# add time variables and remove variables that are all NA
+copd_base_full = left_join(copd_pre,copd_time,by="sid") %>% remove_empty()
+# add prior exacerbation binary variable
+copd_base_full = copd_base_full %>% mutate(priorexacerbation = ifelse(exacerbation_frequency > 0, 1, 0))
+
+### mortality and LFU dataset addition to baseline dataset ###
+# import datasets
+copd_mort <- read_delim("../data/raw_data/COPDGene_Mortality_Surv_2016dec.txt", 
+                                                          "\t", escape_double = FALSE, col_types = cols(DOD_merged = col_date(format = "%m/%d/%Y"), 
+                                                                                                        Phase1_date = col_date(format = "%m/%d/%Y"), 
+                                                                                                        date_SSDI_confirmed = col_date(format = "%m/%d/%Y"), 
+                                                                                                        date_last_SSDI_search = col_date(format = "%m/%d/%Y"), 
+                                                                                                        days_followed = col_number(), last_LFU_survey_date = col_date(format = "%m/%d/%Y")), 
+                                                          trim_ws = TRUE)
+copd_lfu <- read_delim("../data/raw_data/LFU_SidLevel_w_Comorbid_31JUL17.txt", 
+                       "\t", escape_double = FALSE, col_types = cols( 
+                                                                     reportedSmokingStatusString = col_skip()), 
+                       trim_ws = TRUE) 
+# merge datasets
+copd_clinical_full_1 = left_join(copd_base_full,copd_mort)
+copd_clinical_full = left_join(copd_clinical_full_1,copd_lfu) %>% remove_empty()
+
+### local histogram data using third training set ###
+copd_lh = read_excel("../data/raw_data/LHsubtypes_2016_09_21_v2.xlsx") %>% clean_names()
+copd_pre1 = left_join(copd_clinical_full,copd_lh) %>% remove_empty()
+
+### body composition from manual measurements ###
+copd_body <- Body_Composition_COPDGene <- read_csv("../data/raw_data/Body Composition COPDGene.csv")
+copd_pre2 <- left_join(copd_pre1,copd_body) %>% remove_empty()
+
+### biomarker data from Russ Bowler (RBM only) ###
+copd_bio <- read_csv("../data/raw_data/COPDGene_Bowler_RBM_raw.csv") %>% clean_names() %>% remove_empty()
+copd_full <- left_join(copd_pre2,copd_bio)
+
+#############additional data manipulation################
+# rename gender
+copd_full = copd_full %>% mutate(sex = ifelse(gender==2,"female","male"))
+# normalize imaging variables
+copd_full = copd_full %>% mutate(percent_ild_z = percent_ild, percent_emphysema_z = percent_emphysema, awt_seg_thirona_z = awt_seg_thirona, PMA_z = PMA) %>% 
+  mutate_at(scale,.vars = vars(percent_ild_z, percent_emphysema_z, awt_seg_thirona_z, PMA_z))
+
+### dataset with no missing imaging data for clustering ###
+copd_full_imaging = copd_full %>% filter(!is.na(percent_ild), !is.na(percent_emphysema), !is.na(awt_seg_thirona), !is.na(PMA))
+```
+
+
+# Analysis
+## Clustering
+Using k means (k=3 based on DECAMP).  Note that the clusters are relabeled to correspond to the DECAMP clusters based on the local histogram characteristics.
+
+```{r cluster}
+### image clustering based on emphysema, ILD, PMA and AWT ###
+# note use of ggfortify as described: https://cran.r-project.org/web/packages/ggfortify/vignettes/plot_pca.html
+
+# initial clustering based on imaging features - see https://www.datacamp.com/community/tutorials/k-means-clustering-r
+set.seed(9)
+copd_cluster_pre = copd_full_imaging %>% select(sid,percent_ild_z,percent_emphysema_z,PMA_z,awt_seg_thirona_z) # dataset with just SID and normalized imaging variables
+km = kmeans(copd_cluster_pre[,2:5],3)
+copd_full_imaging$cluster <- as.factor(km$cluster) # add initial cluster label to dataset of people with complete imaging data
+copd_full_imaging = copd_full_imaging %>% mutate(cluster_decamp = ifelse(cluster=="1","B", ifelse(cluster=="2","C","A")))
+```
+
+### Cluster appearance:
+```{r cluster_plot,fig.width=10,fig.height=7}
+autoplot(prcomp(copd_cluster_pre[,2:5]), data=copd_full_imaging, colour='cluster_decamp')
+```
+
+### Comparison of clusters based on imaging characteristcs:
+```{r cluster_imaging,fig.width=10,fig.height=10}
+cluster_comparisons <- list( c("A", "B"), c("B", "C"), c("A", "C") )
+
+emph_cluster_plot =  ggplot(copd_full_imaging, aes(cluster_decamp,percent_emphysema)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Percentage Emphysema") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 80, method="anova")     # Add global p-value
+ild_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,percent_ild)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Percentage Interstitial Changes") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 32, method="anova")     # Add global p-value
+awt_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,awt_seg_thirona)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Airway Wall Thickness") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 2.2, method="anova")     # Add global p-value
+pma_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,PMA)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("PMA") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 120, method="anova")     # Add global p-value
+
+
+plot_grid(emph_cluster_plot,ild_cluster_plot,awt_cluster_plot,pma_cluster_plot, ncol=2)
+```
+
+### Mortality of the clusters
+```{r mortality,fig.width=10,fig.height=7}
+# kaplan meier curve for mortality
+km_fit <- survfit(Surv(days_followed, vital_status) ~ cluster_decamp, data=copd_full_imaging)
+ggsurvplot(km_fit, data=copd_full_imaging, 
+           risk.table=TRUE,
+           pval = TRUE,
+           break.time.by = 500,
+           ggtheme = theme_minimal(),
+           risk.table.y.text.col = T,
+           risk.table.y.text = FALSE,
+           legend.title = "Clusters",
+           legend.labs = c("A","B","C"))
+```
+
+
+### Comparison of clusters based on lung function, exercise capacity and quality of life
+1) Baseline Values
+```{r clinical_baseline,fig.width=10,fig.height=10}
+
+fev1_cluster_plot =  ggplot(copd_full_imaging, aes(cluster_decamp,fev1pp_utah)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("FEV1") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 220, method="anova")     # Add global p-value
+fvc_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,fvcpp_utah)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("FVC") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 220, method="anova")     # Add global p-value
+sixmin_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,distwalked)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("6 Minute Walk Distance") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 3800, method="anova")     # Add global p-value
+sgrq_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,sgrq_score_total)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("SGRQ") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 150, method="anova")     # Add global p-value
+
+plot_grid(fev1_cluster_plot,fvc_cluster_plot,sixmin_cluster_plot,sgrq_cluster_plot, ncol=2)
+```
+
+2) Progression over 5 Years of Follow Up
+```{r clinical_progression,fig.width=10,fig.height=5}
+fev1prog_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,fev1_utah_delta)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("FEV1 Change") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 5, method="anova")     # Add global p-value
+distwalked_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,distwalked_delta)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("6MWD Change") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 2500, method="anova")     # Add global p-value
+
+plot_grid(fev1prog_cluster_plot,distwalked_cluster_plot, ncol=2)
+```
+
+### Exacerbation Rate by Cluster
+Note that this comparison is only in those who reported at least one exacerbation during follow up
+```{r exacerbation,fig.width=10,fig.height=5}
+copd_full_imaging <- copd_full_imaging %>% 
+  mutate(exacerbation_rate = Total_Exacerbations/Years_Followed,
+         sev_exacerbation_rate = Total_Severe_Exacer/Years_Followed)
+
+exacerbation_cluster_plot =  ggplot(subset(copd_full_imaging, priorexacerbation == 1), aes(cluster_decamp,exacerbation_rate)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Exacerbation Rate") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 25)     # Add global p-value
+
+sev_exacerbation_cluster_plot =  ggplot(subset(copd_full_imaging, sev_exacerbation_rate > 0), aes(cluster_decamp,sev_exacerbation_rate)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Severe Exacerbation Rate") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 20)     # Add global p-value
+
+plot_grid(exacerbation_cluster_plot, sev_exacerbation_cluster_plot)
+```
+
+### Selected Biomarkers by Cluster
+```{r biomarkers,fig.width=15,fig.height=30}
+crp_cluster_plot =  ggplot(copd_full_imaging, aes(cluster_decamp,crp)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("CRP") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 75, method="anova")     # Add global p-value
+tgf_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,tgfb1_lap)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("TGFb LAP1") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 25, method="anova")     # Add global p-value
+mmp9_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,mmp9)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("MMP9") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 3500, method="anova")     # Add global p-value
+ager_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,ager)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("AGER") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=30, method="anova")     # Add global p-value
+tnfrsf1b_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,tnfrsf1b)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("TNFFRSF1B") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=35,method="anova")     # Add global p-value
+icam1_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,icam1)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("ICAM1") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=575,method="anova")     # Add global p-value
+serpine1_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,serpine1)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("SERPINE1") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=250,method="anova")     # Add global p-value
+vegfa_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,vegfa)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("VEGF Alpha") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=600,method="anova")     # Add global p-value
+il1a_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,il1a)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("IL1 alpha") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=0.005,method="anova")     # Add global p-value
+ccl20_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,ccl20)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("CCL20") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=2000,method="anova")     # Add global p-value
+il1b_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,il1b)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("IL1 beta") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=5.15,method="anova")     # Add global p-value
+il1rn_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,il1rn)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("IL1 RN") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+cxcl5_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,cxcl5)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("CXCL5") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+olr1_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,olr1)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("OLR1") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+serpina3_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,serpina3)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("SERPINA3") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+tnfrsf10c_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,tnfrsf10c)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("tnfrsf10c") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+il8_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,il8)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("IL8") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+
+plot_grid(crp_cluster_plot,tgf_cluster_plot,mmp9_cluster_plot,ager_cluster_plot, 
+          tnfrsf1b_cluster_plot,icam1_cluster_plot,serpine1_cluster_plot,vegfa_cluster_plot,
+          il1a_cluster_plot,ccl20_cluster_plot,il1b_cluster_plot,il1rn_cluster_plot,
+          cxcl5_cluster_plot,olr1_cluster_plot,serpina3_cluster_plot,tnfrsf10c_cluster_plot,il8_cluster_plot,ncol=3)
+```
+
+
+

@@ -68,12 +68,14 @@ copd_time = copd_clean %>% select(sid,days_ct1_ct2,days_phase1_phase2,
                                    change_tlc_thirona, change_pct_emph_thirona, change_pct_gas_trap_thirona,
                                    change_p1_p2_fev1_ml,change_p1_p2_fev1pp) %>% 
   filter(days_phase1_phase2>0)
-# remove visit 2 data from base dataset
-copd_base = copd_clean %>% filter(visitnum==1) %>% select(-visitnum)
+# remove visit 2 data and finalgold -2 from base dataset 
+copd_base = copd_clean %>% filter(visitnum==1) %>% filter(final_gold > -2) %>% select(-visitnum) 
 # merge delta variable data with baseline data
 copd_pre = inner_join(copd_base,copd_delta)
 # add time variables and remove variables that are all NA
 copd_base_full = left_join(copd_pre,copd_time,by="sid") %>% remove_empty()
+# add prior exacerbation binary variable
+copd_base_full = copd_base_full %>% mutate(priorexacerbation = ifelse(exacerbation_frequency > 0, 1, 0))
 
 ### mortality and LFU dataset addition to baseline dataset ###
 # import datasets

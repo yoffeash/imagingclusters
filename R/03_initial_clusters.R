@@ -6,14 +6,14 @@ set.seed(9)
 copd_cluster_pre = copd_full_imaging %>% select(sid,percent_ild_z,percent_emphysema_z,PMA_z,awt_seg_thirona_z) # dataset with just SID and normalized imaging variables
 km = kmeans(copd_cluster_pre[,2:5],3)
 copd_full_imaging$cluster <- as.factor(km$cluster) # add initial cluster label to dataset of people with complete imaging data
-copd_full_imaging = copd_full_imaging %>% mutate(cluster_decamp = ifelse(cluster=="1","1", ifelse(cluster=="2","3","2")))
+copd_full_imaging = copd_full_imaging %>% mutate(cluster_decamp = ifelse(cluster=="1","B", ifelse(cluster=="2","C","A")))
 
 # principal components plotting of clusters (use either of the 2 below)
 autoplot(prcomp(copd_cluster_pre[,2:5]), data=copd_full_imaging, colour='cluster_decamp')
 autoplot(kmeans(copd_cluster_pre[,2:5],3), data=copd_cluster_pre)
 
 ## differences in imaging feature types by cluster to check cluster assignment ##
-cluster_comparisons <- list( c("1", "2"), c("2", "3"), c("1", "3") )
+cluster_comparisons <- list( c("A", "B"), c("B", "C"), c("A", "C") )
 
 emph_cluster_plot =  ggplot(copd_full_imaging, aes(cluster_decamp,percent_emphysema)) + 
   geom_boxplot(fill="gray") + 
