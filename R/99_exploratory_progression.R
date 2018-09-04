@@ -23,3 +23,5 @@ cbind(effect = coef(distwalked_prog_multi_fit),
 ccl18_ild_fit <- lm(ccl18 ~ age_visit + gender + race + smok_cig_now + ats_pack_years +
                       fev1pp_utah + percent_ild + percent_emphysema + PMA + awt_seg_thirona, data=copd_full_imaging)
 summary(ccl18_ild_fit)
+
+
