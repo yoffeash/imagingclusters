@@ -10,11 +10,38 @@ output:
 Initial creation of clusters and analysis of clinical outcomes associated with those clusters in COPDGene for the COPDGene/DECAMP (+/- PLUSS and ECLIPSE) genetic association project.
 
 ## Data Sets Using (including name, date created, date accessed)
+COPDGene datasets used include:
+1) Baseline and longitudinal clinical dataset from October 9, 2017
+2) Mortality dataset from December 2016
+3) LFU dataset from July 2017
+4) LH dataset from September 21, 2017 (using third set of LH training data)
+5) RBM dataset
+6) body composition dataset using manual measurements
 
 ## Libraries Used For Analysis
+library(devtools)
+library(tidyverse)
+library(janitor)
+library(cowplot)
+library(survival)
+library(survminer)
+library(readxl)
+library(ggfortify)
+library(ggpubr)
+library(rmarkdown)
+library(Hmisc)
+library(Gmisc)
 
 # Analysis
 
 ## Data Manipulation
+1) clean variable names and remove columns and rows with all NA
+2) calculate change variables between P1 and P2
+3) remove visit 2 data and finalgold -2 from base dataset
+4) normalize imaging variables
 
 ## Analytics
+1) initial clustering based on imaging features (percent normal, percent emphysema, percent interstitial, PMA, airway wall thickness).  Three clusters using K means based on DECAMP clustering solution
+2) plots of biomarkers by cluster 
+3) clinical differences by clusters
+4) table 1 background data (including new technique to make table 1 automatically in r)
