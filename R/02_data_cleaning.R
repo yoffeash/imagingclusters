@@ -116,3 +116,47 @@ copd_full = copd_full %>% mutate(percent_ild_z = percent_ild, percent_emphysema_
 
 ### dataset with no missing imaging data for clustering ###
 copd_full_imaging = copd_full %>% filter(!is.na(percent_ild), !is.na(percent_emphysema), !is.na(awt_seg_thirona), !is.na(PMA))
+
+############# manipulate COPDGene round 2 local histogram data ##################################################
+### clean round 2 local histogram data from COPDGene and create
+## 1) wide format file with delta variables then will then merge with baseline file in wide format for rate calculations
+## 2) file with visit number two that can then be merged (in addition to baseline LH data) with base file to create long format file for longitudinal anlysis using mixed methods
+
+### import ECLIPSE baseline LH dataset ###
+COPDGene_LH_2_raw <- read_csv("data/raw_data/COPDGene2_localHistogram_parenchymaPhenotypes_20180319_wideFormat.csv")
+COPDGene_LH_2_pre1 <- clean_names(COPDGene_LH_2_raw)
+
+###################################### file with summary whole lung LH values ######################################
+COPDGene_LH_2_summary_whole_pre1 <- COPDGene_LH_2_pre1 %>% select(starts_with("whole")) %>% select(-contains("wild")) %>% select(contains("type_frac"))
+COPDGene_LH_2_CID <- COPDGene_LH_2_pre1 %>% select(contains("cid")) %>% mutate(sid=str_sub(cid,start=1L,end=6L))
+COPDGene_LH_2_summary_whole_pre2 <- bind_cols(COPDGene_LH_2_summary_whole_pre1,COPDGene_LH_2_CID)
+
+COPDGene_LH_2_summary_whole <- COPDGene_LH_2_summary_whole_pre2 %>% 
+  mutate(percent_normal = whole_lung_normal_parenchyma_type_frac*100) %>% 
+  mutate(percent_emphysema = (whole_lung_centrilobular_emphysema_type_frac + whole_lung_emphysematous_type_frac)*100) %>% 
+  mutate(percent_ild = (whole_lung_reticular_type_frac + whole_lung_subpleural_line_type_frac + whole_lung_ground_glass_type_frac +
+           whole_lung_linear_scar_type_frac + whole_lung_centrilobular_nodule_type_frac + whole_lung_cyst_type_frac + whole_lung_nodular_type_frac +
+           whole_lung_nodule_type_frac + whole_lung_bronchiectatic_airway_type_frac + whole_lung_honeycombing_type_frac)*100) %>% 
+  select(cid, sid, percent_normal, percent_emphysema, percent_ild)
+
+############################### wide format file with rate of change in LH measures #########
+# note run after clustering assignement in order to include cluster assignment
+COPDGene_LH_2_whole_2 <- COPDGene_LH_2_summary_whole %>% rename(percent_normal_2 = percent_normal, percent_emphysema_2 = percent_emphysema, percent_ild_2 = percent_ild)
+copd_full_imaging_2 <- inner_join(copd_full_imaging, COPDGene_LH_2_whole_2) %>% 
+  filter(!is.na(percent_ild_2), !is.na(percent_emphysema_2)) %>% 
+  mutate(percent_normal_delta = percent_normal_2 - percent_normal, percent_emphysema_delta = percent_emphysema_2 - percent_emphysema, percent_ild_delta = percent_ild_2 - percent_ild) %>% 
+  mutate(percent_normal_rate = percent_normal_delta/(days_ct1_ct2.y/365), percent_emphysema_rate = percent_emphysema_delta/(days_ct1_ct2.y/365), percent_ild_rate = percent_ild_delta/(days_ct1_ct2.y/365))
+
+############################ merge with long format base dataset ###########
+COPDGene_LH_2_whole_3 <- COPDGene_LH_2_summary_whole %>% mutate(visitnum=2) %>% select(-cid)
+copd_lh_base <- copd_lh %>% mutate(visitnum=1)
+copd_lh_both <- rbind(copd_lh_base,COPDGene_LH_2_whole_3)
+
+copd_cluster_assignments <- copd_full_imaging %>% select(sid,cluster_decamp,days_ct1_ct2.y)  
+
+copd_long <- left_join(copd_lh_both,copd_cluster_assignments) %>% filter(!is.na(cluster_decamp)) %>% 
+  mutate(days=ifelse(visitnum==2,days_ct1_ct2.y,0)) %>% 
+  filter(!is.na(days)) %>% select(-days_ct1_ct2.y) %>% 
+  mutate(years=days/365)
+  
+
