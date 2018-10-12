@@ -139,6 +139,9 @@ COPDGene_LH_2_summary_whole <- COPDGene_LH_2_summary_whole_pre2 %>%
            whole_lung_nodule_type_frac + whole_lung_bronchiectatic_airway_type_frac + whole_lung_honeycombing_type_frac)*100) %>% 
   select(cid, sid, percent_normal, percent_emphysema, percent_ild)
 
+####################################################################################################################################################################################
+
+
 ############################### wide format file with rate of change in LH measures #########
 # note run after clustering assignement in order to include cluster assignment
 COPDGene_LH_2_whole_2 <- COPDGene_LH_2_summary_whole %>% rename(percent_normal_2 = percent_normal, percent_emphysema_2 = percent_emphysema, percent_ild_2 = percent_ild)
@@ -158,5 +161,18 @@ copd_long <- left_join(copd_lh_both,copd_cluster_assignments) %>% filter(!is.na(
   mutate(days=ifelse(visitnum==2,days_ct1_ct2.y,0)) %>% 
   filter(!is.na(days)) %>% select(-days_ct1_ct2.y) %>% 
   mutate(years=days/365)
-  
 
+## merge long format imaging dataset with long format baseline dataset
+copd_clean_pre <- copd_clean %>% select(sid,same_scanner_model,visitnum) %>% 
+  spread(visitnum,same_scanner_model) 
+names(copd_clean_pre)[names(copd_clean_pre)=='1'] <- "visit_1"
+names(copd_clean_pre)[names(copd_clean_pre)=='2'] <- "visit_2"
+copd_clean_pre2 <- copd_clean_pre %>% mutate(visit_1 = visit_2) %>% drop_na(visit_1) %>% 
+  gather(visitnum_char,same_scanner_model_full,visit_1:visit_2) %>% mutate(visitnum=ifelse(visitnum_char=="visit_1",1,2))
+  
+copd_long_full <- left_join(copd_long, copd_clean)
+
+copd_long_full_same_scan <- left_join(copd_long_full,copd_clean_pre2) %>% filter(same_scanner_model_full == 1)
+
+
+################################################################################DECAMP#############################################################

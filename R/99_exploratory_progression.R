@@ -58,11 +58,16 @@ cbind(effect = coef(ild_rate_prog_multi_fit),
       p = coef(summary(ild_rate_prog_multi_fit))[,4])
 
 
-copd_long$cluster_decamp_f <- factor(copd_long$cluster_decamp) # setup comparisons
-contrasts(copd_long$cluster_decamp_f) <- contr.treatment(3, base=1) # setup comparisons
+copd_long_full$cluster_decamp_f <- factor(copd_long_full$cluster_decamp) # setup comparisons
+contrasts(copd_long_full$cluster_decamp_f) <- contr.treatment(3, base=1) # setup comparisons
 
 # percent emphysema longitudinal
-emphysema_prog_uni_fit <- lmer(percent_emphysema ~ cluster_decamp_f + years + (1|sid),data=copd_long)
+emphysema_prog_uni_fit <- lmer(percent_emphysema ~ years + cluster_decamp_f*years + (years||sid),data=copd_long_full_same_scan)
 summary(emphysema_prog_uni_fit)
 anova(emphysema_prog_uni_fit)
+
+emphysema_prog_multi_fit <- lmer(percent_emphysema ~ age_visit + gender + race + smok_cig_now + ats_pack_years + bmi +
+                                 fev1pp_utah + years + cluster_decamp_f*years + (years||sid),data=copd_long_full_same_scan)
+summary(emphysema_prog_multi_fit)
+anova(emphysema_prog_multi_fit)
 
