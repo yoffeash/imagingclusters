@@ -176,3 +176,9 @@ copd_long_full_same_scan <- left_join(copd_long_full,copd_clean_pre2) %>% filter
 
 
 ################################################################################DECAMP#############################################################
+decamp_pre1 <- read_excel("data/raw_data/DECAMP clustering imaging variables.xlsx")
+decamp_pre2 <- decamp_pre1 %>% mutate(percent_ild_z = Percent_ILA, percent_emphysema_z = Percent_Emphysema, 
+                                  percent_normal_z = Percent_Normal, awt_seg_thirona_z = WallThickness, PMA_z = Standard_PMA) %>% 
+  mutate_at(scale,.vars = vars(percent_ild_z, percent_emphysema_z, percent_normal_z, awt_seg_thirona_z, PMA_z)) %>% 
+  select(Case,percent_ild_z,percent_emphysema_z,
+         percent_normal_z,PMA_z,awt_seg_thirona_z)
