@@ -1,5 +1,8 @@
 ### longitudinal progression of emphysema using mixed effects modeling ###
 
+copd_long_full_same_scan$cluster_decamp_f <- factor(copd_long_full_same_scan$cluster_decamp) # setup comparisons
+contrasts(copd_long_full_same_scan$cluster_decamp_f) <- contr.treatment(3, base=1) # setup comparisons
+
 # percent emphysema longitudinal
 emphysema_prog_uni_fit <- lmer(percent_emphysema ~ years + cluster_decamp_f*years + (years||sid),data=copd_long_full_same_scan)
 summary(emphysema_prog_uni_fit)

@@ -1,4 +1,64 @@
-### clinical differences by clusters ###
+### clinical and radiographic differences by clusters ###
+
+## differences in imaging feature types by cluster to check cluster assignment ##
+cluster_comparisons <- list( c("A", "B"), c("B", "C"), c("A", "C") )
+
+## copdgene radiographic differences by cluster
+copd_emph_cluster_plot =  ggplot(copd_full_imaging, aes(cluster_decamp,percent_emphysema)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Percentage Emphysema") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 80, method="anova")     # Add global p-value
+copd_ild_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,percent_ild)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Percentage Interstitial Changes") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 32, method="anova")     # Add global p-value
+copd_awt_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,awt_seg_thirona)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Airway Wall Thickness") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 2.2, method="anova")     # Add global p-value
+copd_pma_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,PMA)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("PMA") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 120, method="anova")     # Add global p-value
+
+plot_grid(copd_emph_cluster_plot,copd_ild_cluster_plot,copd_awt_cluster_plot,copd_pma_cluster_plot, ncol=2)
+
+## decamp radiographic differences by cluster
+decamp_emph_cluster_plot =  ggplot(decamp_full_imaging_cluster, aes(cluster_decamp,Percent_Emphysema)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Percentage Emphysema") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 80, method="anova")     # Add global p-value
+decamp_ild_cluster_plot = ggplot(decamp_full_imaging_cluster, aes(cluster_decamp,Percent_ILA)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Percentage Interstitial Changes") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 50, method="anova")     # Add global p-value
+decamp_awt_cluster_plot = ggplot(decamp_full_imaging_cluster, aes(cluster_decamp,WallThickness)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Airway Wall Thickness") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 3, method="anova")     # Add global p-value
+decamp_pma_cluster_plot = ggplot(decamp_full_imaging_cluster, aes(cluster_decamp,PMA_10)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("PMA") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 100, method="anova")     # Add global p-value
+
+
+plot_grid(decamp_emph_cluster_plot,decamp_ild_cluster_plot,decamp_awt_cluster_plot,decamp_pma_cluster_plot, ncol=2)
 
 ### mortality ###
 # kaplan meier curve for mortality
@@ -57,6 +117,17 @@ distwalked_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,distwalke
   stat_compare_means(method="anova")     # Add global p-value
 
 plot_grid(fev1prog_cluster_plot,distwalked_cluster_plot, ncol=2)
+
+copd_long_clinical$cluster_decamp_f <- factor(copd_long_clinical$cluster_decamp) # setup comparisons
+contrasts(copd_long_clinical$cluster_decamp_f) <- contr.treatment(3, base=1) # setup comparisons
+
+distwalked_prog_uni_fit <- lmer(distwalked ~ years + cluster_decamp_f*years + (years||sid),data=copd_long_clinical)
+summary(distwalked_prog_uni_fit)
+anova(distwalked_prog_uni_fit)
+
+fev1_prog_uni_fit <- lmer(fev1pp_utah ~ years + cluster_decamp_f*years + (years||sid),data=copd_long_clinical)
+summary(fev1_prog_uni_fit)
+anova(fev1_prog_uni_fit)
 
 ### multivariable logistic regression analysis of exaerbation odds by cluster ###
 copd_full_imaging$cluster_decamp_f <- factor(copd_full_imaging$cluster_decamp)

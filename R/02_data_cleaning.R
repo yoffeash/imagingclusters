@@ -174,6 +174,11 @@ copd_long_full <- left_join(copd_long, copd_clean)
 
 copd_long_full_same_scan <- left_join(copd_long_full,copd_clean_pre2) %>% filter(same_scanner_model_full == 1)
 
+copd_long_clinical <- left_join(copd_clean,copd_cluster_assignments) %>% filter(!is.na(cluster_decamp)) %>% 
+  mutate(days=ifelse(visitnum==2,days_ct1_ct2.y,0)) %>% 
+  filter(!is.na(days)) %>% select(-days_ct1_ct2.y) %>% 
+  mutate(years=days/365)
+
 
 ################################################################################DECAMP#############################################################
 decamp_pre1 <- read_excel("data/raw_data/DECAMP clustering imaging variables.xlsx")
