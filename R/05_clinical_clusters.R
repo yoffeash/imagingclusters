@@ -155,7 +155,7 @@ rate_exac_multi <- zeroinfl(Total_Exacerbations ~ cluster_decamp_f + age_visit +
                               gastro_esoph_reflx, data=copd_full_imaging_follow, dist="negbin", offset=lyears, EM=TRUE)
 summary(rate_exac_multi)
 cbind(IRR = exp(coef(rate_exac_multi)), 
-      exp(confint(rate_exac_multi)))
+      exp(confint(rate_exac_multi)))[2:3,]
 
 ### univariate exaerbation rate by cluster ###
 # exacerbation rate
