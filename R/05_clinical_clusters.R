@@ -147,6 +147,16 @@ cbind(OR = exp(coef(exacerbation_fit_Bref)),
       exp(confint(exacerbation_fit_Bref)), 
       p = coef(summary(exacerbation_fit_Bref))[,4])
 
+### multivariable zero inflated negative binomial regression
+copd_full_imaging_follow <- copd_full_imaging %>% mutate(lyears = ifelse(Years_Followed>0, log(Years_Followed), 0))
+
+rate_exac_multi <- zeroinfl(Total_Exacerbations ~ cluster_decamp_f + age_visit + gender + race + smok_cig_now +
+                              fev1pp_utah + priorexacerbation + sgrq_score_total +
+                              gastro_esoph_reflx, data=copd_full_imaging_follow, dist="negbin", offset=lyears, EM=TRUE)
+summary(rate_exac_multi)
+cbind(IRR = exp(coef(rate_exac_multi)), 
+      exp(confint(rate_exac_multi)))
+
 ### univariate exaerbation rate by cluster ###
 # exacerbation rate
 copd_full_imaging <- copd_full_imaging %>% 

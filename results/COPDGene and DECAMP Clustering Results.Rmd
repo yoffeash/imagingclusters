@@ -51,6 +51,7 @@ library(cluster)
 library(factoextra)
 library(mclust)
 library(NbClust)
+library(pscl)
 ```
 
 ## Data
@@ -69,6 +70,8 @@ DECAMP datasets used include:
 ```{r data_import}
 ## 02 Initial Import and Cleaning of COPDGene Data ##
 ## edited 2018_08_08
+
+setwd('/Users/sya2/OneDrive - Partners HealthCare/research/imaging/genetics/clustering/imaging_clusters')
 
 #### general COPDGene database ####
 copd <- read_delim("data/raw_data/COPDGene_P1P2_All_Visit_09OCT17.txt", 
@@ -328,7 +331,8 @@ copd_decamp_imaging_cluster_pca_plot
 
 ## Comparison of clusters with regard to baseline imaging characteristcs:
 Methods notes: Global comparisons between means made using ANOVA.  Pairwise comparisons made using t-tests.
-### COPDGene:
+
+### COPDGene
 ```{r cluster_imaging_copdgene,fig.width=10,fig.height=10}
 cluster_comparisons <- list( c("A", "B"), c("B", "C"), c("A", "C") )
 
@@ -536,7 +540,10 @@ summary(distwalked_prog_uni_fit)
 anova(distwalked_prog_uni_fit)
 ```
 
-### Radiographic (emphysema) progression:
+Additional notes: Would probably only include the mixed effects models but figures provided for reference and could be included.
+
+### Radiographic (emphysema) progression in COPDGene:
+
 1) Annualized rate using ANOVA and ttest for comparisons (NB: Would NOT use for final results due to issues with repeated tests and scanner differences over time.  Shown here only for reference)
 ```{r remphysema_progression_rate}
 emph_prog_cluster_plot =  ggplot(copd_full_imaging_2, aes(cluster_decamp,percent_emphysema_rate)) + 
@@ -551,14 +558,19 @@ emph_prog_cluster_plot
 
 2) Mixed effects model using random intercepts and slopes.
 Methods notes: Note that this analysis is limited to those individuals who were scanned using the same scanner make and model for both visits (n=2354)
-Notes on interpretation: The results are expressed in percentage of lung occupied by emphysema.  Briefly, over the course of follow up, those individuals in the emphysema predominant cluster gained 0.30% more emphysema per year than those in the reference group (p<0.001) and those in the interstitial predominant group gained 0.13% more emphysema per year than those in the reference (resiliant) group (p=0.011).
+
+Results notes: The results are expressed in percentage of lung occupied by emphysema.  Briefly, over the course of follow up, those individuals in the emphysema predominant cluster gained 0.30% more emphysema per year than those in the reference group (p<0.001) and those in the interstitial predominant group gained 0.13% more emphysema per year than those in the reference (resiliant) group (p=0.011).
 
 ```{r emphysema_progression_mixed}
+copd_long_full_same_scan$cluster_decamp_f <- factor(copd_long_full_same_scan$cluster_decamp) # setup comparisons
+contrasts(copd_long_full_same_scan$cluster_decamp_f) <- contr.treatment(3, base=1) # setup comparisons
+
 emphysema_prog_uni_fit <- lmer(percent_emphysema ~ years + cluster_decamp_f*years + (years||sid),data=copd_long_full_same_scan)
 summary(emphysema_prog_uni_fit)
 anova(emphysema_prog_uni_fit)
 ```
 
+Additional notes: Would probably only include the mixed effects models but figures provided for reference and could be included.
 
 ## Mortality of the clusters in COPDGene
 ```{r mortality,fig.width=10,fig.height=7}
@@ -575,9 +587,48 @@ ggsurvplot(km_fit, data=copd_full_imaging,
            legend.labs = c("A","B","C"))
 ```
 
-### Exacerbation Rate by Cluster in COPDGene
-Note that this comparison is only in those who reported at least one exacerbation during follow up
-```{r exacerbation,fig.width=10,fig.height=5}
+## Exacerbations in COPDGene
+
+### Odds of Exacerbation
+Methods notes: Odds of exacerbation during follow-up evaluated using logisitic regression adjusted for age, sex, race, current smoking status, FEV1pp, SGRQ, GERD and exacerbation in the year prior to enrollment.
+
+Results notes: Those individuals in the emphysema predominant cluster had a 6.0% higher odds of exacerbation during follow-up than those in the resiliant group (OR: 1.06, CI: 1.01-1.11, p=0.018).  No such effect as seen for the interstitial predominant group (OR: 1.01, CI: 0.98-1.04, p=0.616).
+
+```{r exacerbation_odds_multi}
+copd_full_imaging$cluster_decamp_f <- factor(copd_full_imaging$cluster_decamp)
+contrasts(copd_full_imaging$cluster_decamp_f) <- contr.treatment(3, base=1)
+
+exacerbation_fit_Aref <- glm(reportedExacerbation ~ cluster_decamp_f + age_visit + gender + race + smok_cig_now +
+                          fev1pp_utah + priorexacerbation + sgrq_score_total +
+                          gastro_esoph_reflx, data=copd_full_imaging)
+cbind(OR = exp(coef(exacerbation_fit_Aref)), 
+      exp(confint(exacerbation_fit_Aref)), 
+      p = coef(summary(exacerbation_fit_Aref))[,4])
+```
+
+
+### Exacerbation Rate by Cluster
+
+1) Multivariable analysis.
+
+Methods notes: Multivariable zero-inflated negative binomial regression with the same adjustments as for logistic regression above. Time scale term included to account for varying durations of follow-up.
+
+Results notes: Those individuals in the emphysema predominant group had 32% more exacerbations during follow up than those in the reference (resilient) cluster (IRR=1.32, CI: 1.12-1.56, p=0.001).  Those individuals in the interstitial predominant group had 14% more exacerbations during follow up than those in the reference (resilient) group (IRR=1.14, CI: 1.00-1.30, p=0.043).
+
+```{r exacerbation_IRR_multi}
+copd_full_imaging_follow <- copd_full_imaging %>% mutate(lyears = ifelse(Years_Followed>0, log(Years_Followed), 0))
+
+rate_exac_multi <- zeroinfl(Total_Exacerbations ~ cluster_decamp_f + age_visit + gender + race + smok_cig_now +
+                              fev1pp_utah + priorexacerbation + sgrq_score_total +
+                              gastro_esoph_reflx, data=copd_full_imaging_follow, dist="negbin", offset=lyears, EM=TRUE)
+summary(rate_exac_multi)
+cbind(IRR = exp(coef(rate_exac_multi)), 
+      exp(confint(rate_exac_multi)))[2:3,]
+```
+
+2) Figure for univariate analyses using ANOVA for global comparison and ttests for pairwaise comparisons. (Note that this comparison is only in those who reported at least one exacerbation during follow up). Would probably only include the total exacerbation analysis.
+
+```{r exacerbation_plot,fig.width=10,fig.height=5}
 copd_full_imaging <- copd_full_imaging %>% 
   mutate(exacerbation_rate = Total_Exacerbations/Years_Followed,
          sev_exacerbation_rate = Total_Severe_Exacer/Years_Followed)
@@ -599,7 +650,10 @@ sev_exacerbation_cluster_plot =  ggplot(subset(copd_full_imaging, sev_exacerbati
 plot_grid(exacerbation_cluster_plot, sev_exacerbation_cluster_plot)
 ```
 
-### Selected Biomarkers by Cluster
+## Selected Biomarkers by Cluster
+
+Notes: Probably would not include but included here for reference.
+
 ```{r biomarkers,fig.width=15,fig.height=30}
 crp_cluster_plot =  ggplot(copd_full_imaging, aes(cluster_decamp,crp)) + 
   geom_boxplot(fill="gray") + 
