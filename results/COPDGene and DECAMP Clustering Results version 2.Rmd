@@ -1,0 +1,768 @@
+---
+title: "COPDGene/DECAMP Radiologic Clustering Project"
+author: "Samuel Ash"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    fig_caption: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE,error=FALSE,error=FALSE,warning=FALSE)
+```
+
+# Overview
+This document describes the results of the imaging clusters from COPDGene based on prior DECAMP clustering.  This includes:
+1) Clustering of COPDGene and DECAMP
+2) Radiographic characteristics of clusters in COPDGene and DECAMP
+3) Baseline clinical characteristics of overall cohort (Table 1) and by cluster in COPDGene
+4) Progression (FEV1, exercise capacity, emphysema) by cluster in COPDGene including plots (rates) and mixed effect models 
+5) Mortality in COPDGene by cluster
+6) Exacerbation rates in COPDGene by cluster
+7) Biomarkers in COPDGene by cluster
+
+Note that r code is available for reference by clicking the code folding buttons on the right.
+
+# Load Libraries and Data
+## Libraries
+
+```{r load_libs}
+library(devtools)
+library(tidyverse)
+library(janitor)
+library(cowplot)
+library(survival)
+library(survminer)
+library(readxl)
+library(ggfortify)
+library(ggpubr)
+library(rmarkdown)
+library(Hmisc)
+library(Gmisc)
+library(lme4)
+library(fields)
+library(languageR)
+library(lmerTest)
+library(cluster)
+library(factoextra)
+library(mclust)
+library(NbClust)
+library(pscl)
+```
+
+## Data
+COPDGene datasets used include:
+1) Baseline and longitudinal clinical dataset from October 9, 2017
+2) Mortality dataset from December 2016
+3) LFU dataset from July 2017
+4) Round 1 LH dataset from September 21, 2017 (using third set of LH training data)
+5) RBM dataset
+6) body composition dataset using manual measurements
+7) Round 2 LH dataset from March 19, 2018 (using third set of LH training data)
+
+DECAMP datasets used include:
+1) DECAMP imaging dataset from October 9, 2018
+
+```{r data_import}
+## 02 Initial Import and Cleaning of COPDGene Data ##
+## edited 2018_08_08
+
+setwd('/Users/sya2/OneDrive - Partners HealthCare/research/imaging/genetics/clustering/imaging_clusters')
+
+#### general COPDGene database ####
+copd <- read_delim("data/raw_data/COPDGene_P1P2_All_Visit_09OCT17.txt", 
+                   "\t", escape_double = FALSE, trim_ws = TRUE)
+# clean variable names and remove columns and rows with all NA
+copd_clean <- clean_names(copd) %>% 
+  rename(dlco_pp=dlc_opp, 
+         tlc_pp_race_adjusted=tl_cpp_race_adjusted,
+         fvcpp_utah=fv_cpp_utah,
+         dlco_raw=d_lco_raw) %>% 
+  remove_empty()
+## calculate change variables ##
+# remove subset of variables that we are interested in their change over time
+copd_change = copd_clean %>% select(sid,visitnum,height_cm,weight_kg,
+                                     distwalked,sgrq_score_total,dlco_pp, dlco_raw,
+                                     tlc_pp_race_adjusted,fev1pp_utah,fvcpp_utah,
+                                     fev1_fvc_utah,pct_emph_thirona,tlc_thirona,
+                                     pct_gas_trap_thirona,awt_seg_thirona,
+                                     fev1_utah,fvc_utah)
+# spread to wide format
+copd_change_wide = copd_change %>% 
+  tidyr::gather_(key="variable", value="value", 
+                 c("height_cm",
+                   "weight_kg",
+                   "distwalked",
+                   "sgrq_score_total",
+                   "dlco_pp", 
+                   "dlco_raw",
+                   "tlc_pp_race_adjusted",
+                   "fev1pp_utah",
+                   "fvcpp_utah",
+                   "fev1_fvc_utah",
+                   "pct_emph_thirona",
+                   "tlc_thirona",
+                   "pct_gas_trap_thirona",
+                   "awt_seg_thirona",
+                   "fev1_utah",
+                   "fvc_utah"
+                   )) %>% 
+  tidyr::unite("time_by_variable", variable, visitnum, remove=T) %>%  
+  tidyr::spread(key=time_by_variable, value=value)                
+# calculate change between two variables
+copd_delta = copd_change_wide %>% 
+  mutate(awt_seg_thirona_delta = awt_seg_thirona_2 - awt_seg_thirona_1,
+         distwalked_delta = distwalked_2 - distwalked_1,
+         dlco_pp_delta = dlco_pp_2 - dlco_pp_1,
+         dlco_raw_delta = dlco_pp_2 - dlco_raw_1,
+         fev1_fvc_utah_delta = fev1_fvc_utah_2 - fev1_fvc_utah_1,
+         fev1_utah_delta = fev1_utah_2 - fev1_utah_1,
+         fev1pp_utah_delta = fev1pp_utah_2 - fev1pp_utah_1,
+         fvc_utah_delta = fvc_utah_2 - fvc_utah_1,
+         fvcpp_utah_delta = fvcpp_utah_2 - fvcpp_utah_1,
+         height_cm_delta = height_cm_2 - height_cm_1,
+         pct_emph_thirona_delta = pct_emph_thirona_2 - pct_emph_thirona_1,
+         pct_gas_trap_thirona_delta = pct_gas_trap_thirona_2 - pct_gas_trap_thirona_1,
+         sgrq_score_total_delta = sgrq_score_total_2 - sgrq_score_total_1,
+         tlc_pp_race_adjusted_delta = tlc_pp_race_adjusted_2 - tlc_pp_race_adjusted_1,
+         tlc_thirona_delta = tlc_thirona_2 - tlc_thirona_1,
+         weight_kg_delta = weight_kg_2 - weight_kg_1) %>% 
+  select(sid,awt_seg_thirona_delta,distwalked_delta,dlco_pp_delta,
+         fev1_fvc_utah_delta,fev1_utah_delta,fev1pp_utah_delta,fvc_utah_delta,fvcpp_utah_delta,
+         height_cm_delta,pct_emph_thirona_delta,pct_gas_trap_thirona_delta,sgrq_score_total_delta,
+         tlc_pp_race_adjusted_delta,weight_kg_delta)
+# extract time between visits and copdgene calculated change variables 
+copd_time = copd_clean %>% select(sid,days_ct1_ct2,days_phase1_phase2,
+                                   change_tlc_thirona, change_pct_emph_thirona, change_pct_gas_trap_thirona,
+                                   change_p1_p2_fev1_ml,change_p1_p2_fev1pp) %>% 
+  filter(days_phase1_phase2>0)
+# remove visit 2 data and finalgold -2 from base dataset 
+copd_base = copd_clean %>% filter(visitnum==1) %>% filter(final_gold > -2) %>% select(-visitnum) 
+# merge delta variable data with baseline data
+copd_pre = inner_join(copd_base,copd_delta)
+# add time variables and remove variables that are all NA
+copd_base_full = left_join(copd_pre,copd_time,by="sid") %>% remove_empty()
+# add prior exacerbation binary variable
+copd_base_full = copd_base_full %>% mutate(priorexacerbation = ifelse(exacerbation_frequency > 0, 1, 0))
+
+### mortality and LFU dataset addition to baseline dataset ###
+# import datasets
+copd_mort <- read_delim("data/raw_data/COPDGene_Mortality_Surv_2016dec.txt", 
+                                                          "\t", escape_double = FALSE, col_types = cols(DOD_merged = col_date(format = "%m/%d/%Y"), 
+                                                                                                        Phase1_date = col_date(format = "%m/%d/%Y"), 
+                                                                                                        date_SSDI_confirmed = col_date(format = "%m/%d/%Y"), 
+                                                                                                        date_last_SSDI_search = col_date(format = "%m/%d/%Y"), 
+                                                                                                        days_followed = col_number(), last_LFU_survey_date = col_date(format = "%m/%d/%Y")), 
+                                                          trim_ws = TRUE)
+copd_lfu <- read_delim("data/raw_data/LFU_SidLevel_w_Comorbid_31JUL17.txt", 
+                       "\t", escape_double = FALSE, col_types = cols( 
+                                                                     reportedSmokingStatusString = col_skip()), 
+                       trim_ws = TRUE) 
+# merge datasets
+copd_clinical_full_1 = left_join(copd_base_full,copd_mort)
+copd_clinical_full = left_join(copd_clinical_full_1,copd_lfu) %>% remove_empty()
+
+### local histogram data using third training set ###
+copd_lh = read_excel("data/raw_data/LHsubtypes_2016_09_21_v2.xlsx") %>% clean_names()
+copd_pre1 = left_join(copd_clinical_full,copd_lh) %>% remove_empty()
+
+### body composition from manual measurements ###
+copd_body <- Body_Composition_COPDGene <- read_csv("data/raw_data/Body Composition COPDGene.csv")
+copd_pre2 <- left_join(copd_pre1,copd_body) %>% remove_empty()
+
+### biomarker data from Russ Bowler (RBM only) ###
+copd_bio <- read_csv("data/raw_data/COPDGene_Bowler_RBM_raw.csv") %>% clean_names() %>% remove_empty()
+copd_full <- left_join(copd_pre2,copd_bio)
+
+#############additional data manipulation################
+# rename gender
+copd_full = copd_full %>% mutate(sex = ifelse(gender==2,"female","male"))
+# normalize imaging variables
+copd_full = copd_full %>% mutate(percent_ild_z = percent_ild, percent_emphysema_z = percent_emphysema, 
+                                 percent_normal_z = percent_normal, awt_seg_thirona_z = awt_seg_thirona, PMA_z = PMA) %>% 
+  mutate_at(scale,.vars = vars(percent_ild_z, percent_emphysema_z, percent_normal_z, awt_seg_thirona_z, PMA_z))
+
+### dataset with no missing imaging data for clustering ###
+copd_full_imaging = copd_full %>% filter(!is.na(percent_ild), !is.na(percent_emphysema), !is.na(awt_seg_thirona), !is.na(PMA))
+
+############# manipulate COPDGene round 2 local histogram data ##################################################
+### clean round 2 local histogram data from COPDGene and create
+## 1) wide format file with delta variables then will then merge with baseline file in wide format for rate calculations
+## 2) file with visit number two that can then be merged (in addition to baseline LH data) with base file to create long format file for longitudinal anlysis using mixed methods
+
+### import COPDGene Round 2 LH dataset ###
+COPDGene_LH_2_raw <- read_csv("data/raw_data/COPDGene2_localHistogram_parenchymaPhenotypes_20180319_wideFormat.csv")
+COPDGene_LH_2_pre1 <- clean_names(COPDGene_LH_2_raw)
+
+###################################### file with summary whole lung LH values ######################################
+COPDGene_LH_2_summary_whole_pre1 <- COPDGene_LH_2_pre1 %>% select(starts_with("whole")) %>% select(-contains("wild")) %>% select(contains("type_frac"))
+COPDGene_LH_2_CID <- COPDGene_LH_2_pre1 %>% select(contains("cid")) %>% mutate(sid=str_sub(cid,start=1L,end=6L))
+COPDGene_LH_2_summary_whole_pre2 <- bind_cols(COPDGene_LH_2_summary_whole_pre1,COPDGene_LH_2_CID)
+
+COPDGene_LH_2_summary_whole <- COPDGene_LH_2_summary_whole_pre2 %>% 
+  mutate(percent_normal = whole_lung_normal_parenchyma_type_frac*100) %>% 
+  mutate(percent_emphysema = (whole_lung_centrilobular_emphysema_type_frac + whole_lung_emphysematous_type_frac)*100) %>% 
+  mutate(percent_ild = (whole_lung_reticular_type_frac + whole_lung_subpleural_line_type_frac + whole_lung_ground_glass_type_frac +
+           whole_lung_linear_scar_type_frac + whole_lung_centrilobular_nodule_type_frac + whole_lung_cyst_type_frac + whole_lung_nodular_type_frac +
+           whole_lung_nodule_type_frac + whole_lung_bronchiectatic_airway_type_frac + whole_lung_honeycombing_type_frac)*100) %>% 
+  select(cid, sid, percent_normal, percent_emphysema, percent_ild)
+
+################################################################################DECAMP#############################################################
+decamp_pre1 <- read_excel("data/raw_data/DECAMP clustering imaging variables.xlsx")
+decamp_pre2 <- decamp_pre1 %>% mutate(percent_ild_z = Percent_ILA, percent_emphysema_z = Percent_Emphysema, 
+                                  percent_normal_z = Percent_Normal, awt_seg_thirona_z = WallThickness, PMA_z = Standard_PMA) %>% 
+  mutate_at(scale,.vars = vars(percent_ild_z, percent_emphysema_z, percent_normal_z, awt_seg_thirona_z, PMA_z)) %>% 
+  select(Case,percent_ild_z,percent_emphysema_z,
+         percent_normal_z,PMA_z,awt_seg_thirona_z)
+```
+
+
+# Analysis
+## Clustering
+Methods notes: Clustering was performed in both the DECAMP and COPDGene cohorts separately using the k-means method based on the following computed tomography (CT) imaging based measurements: the percentage of lung occupied by emphysema, the percentage of lung occupied by interstitial changes, the percentage of lung occupied by normal tissue, third generation airway wall thickness and the pectoralis muscle area, all of which were centered and scaled using their mean and standard deviation.
+
+```{r copdgene_initial_cluster}
+set.seed(9)
+copd_cluster_pre = copd_full_imaging %>% select(sid,percent_ild_z,percent_emphysema_z,
+                                                percent_normal_z,PMA_z,awt_seg_thirona_z) # dataset with just SID and normalized imaging variables
+km = kmeans(copd_cluster_pre[,2:6],3)
+
+copd_full_imaging$cluster <- as.factor(km$cluster) # add initial cluster label to dataset of people with complete imaging data
+copd_full_imaging = copd_full_imaging %>% mutate(cluster_decamp = ifelse(cluster=="1","B", ifelse(cluster=="2","C","A")))
+
+copd_imaging_cluster <- copd_cluster_pre
+copd_imaging_cluster$cluster <- as.factor(km$cluster) # add initial cluster label to imaging data only
+copd_imaging_cluster <- copd_imaging_cluster %>% mutate(cluster_decamp = ifelse(cluster=="1","B", ifelse(cluster=="2","C","A"))) %>% 
+  mutate(Cohort="COPDGene") %>% select(-cluster)
+```
+
+```{r copdgene_add_cluster}
+############################### wide format file with rate of change in LH measures #########
+# note run after clustering assignement in order to include cluster assignment
+COPDGene_LH_2_whole_2 <- COPDGene_LH_2_summary_whole %>% rename(percent_normal_2 = percent_normal, percent_emphysema_2 = percent_emphysema, percent_ild_2 = percent_ild)
+copd_full_imaging_2 <- inner_join(copd_full_imaging, COPDGene_LH_2_whole_2) %>% 
+  filter(!is.na(percent_ild_2), !is.na(percent_emphysema_2)) %>% 
+  mutate(percent_normal_delta = percent_normal_2 - percent_normal, percent_emphysema_delta = percent_emphysema_2 - percent_emphysema, percent_ild_delta = percent_ild_2 - percent_ild) %>% 
+  mutate(percent_normal_rate = percent_normal_delta/(days_ct1_ct2.y/365), percent_emphysema_rate = percent_emphysema_delta/(days_ct1_ct2.y/365), percent_ild_rate = percent_ild_delta/(days_ct1_ct2.y/365))
+
+############################ merge with long format base dataset ###########
+COPDGene_LH_2_whole_3 <- COPDGene_LH_2_summary_whole %>% mutate(visitnum=2) %>% select(-cid)
+copd_lh_base <- copd_lh %>% mutate(visitnum=1)
+copd_lh_both <- rbind(copd_lh_base,COPDGene_LH_2_whole_3)
+
+copd_cluster_assignments <- copd_full_imaging %>% select(sid,cluster_decamp,days_ct1_ct2.y)  
+
+copd_long <- left_join(copd_lh_both,copd_cluster_assignments) %>% filter(!is.na(cluster_decamp)) %>% 
+  mutate(days=ifelse(visitnum==2,days_ct1_ct2.y,0)) %>% 
+  filter(!is.na(days)) %>% select(-days_ct1_ct2.y) %>% 
+  mutate(years=days/365)
+
+## merge long format imaging dataset with long format baseline dataset
+copd_clean_pre <- copd_clean %>% select(sid,same_scanner_model,visitnum) %>% 
+  spread(visitnum,same_scanner_model) 
+names(copd_clean_pre)[names(copd_clean_pre)=='1'] <- "visit_1"
+names(copd_clean_pre)[names(copd_clean_pre)=='2'] <- "visit_2"
+copd_clean_pre2 <- copd_clean_pre %>% mutate(visit_1 = visit_2) %>% drop_na(visit_1) %>% 
+  gather(visitnum_char,same_scanner_model_full,visit_1:visit_2) %>% mutate(visitnum=ifelse(visitnum_char=="visit_1",1,2))
+  
+copd_long_full <- left_join(copd_long, copd_clean)
+
+copd_long_full_same_scan <- left_join(copd_long_full,copd_clean_pre2) %>% filter(same_scanner_model_full == 1)
+
+copd_long_clinical <- left_join(copd_clean,copd_cluster_assignments) %>% filter(!is.na(cluster_decamp)) %>% 
+  mutate(days=ifelse(visitnum==2,days_ct1_ct2.y,0)) %>% 
+  filter(!is.na(days)) %>% select(-days_ct1_ct2.y) %>% 
+  mutate(years=days/365)
+```
+
+```{r decamp_clustering}
+set.seed(9)
+km = kmeans(decamp_pre2[,2:6],3)
+decamp_clusters <- decamp_pre2
+decamp_clusters$cluster <- as.factor(km$cluster) # add initial cluster label to dataset of people with complete imaging data
+decamp_clusters = decamp_clusters %>% mutate(cluster_decamp = ifelse(cluster=="1","A", ifelse(cluster=="2","C","B")))
+decamp_imaging_clusters <- decamp_clusters %>% mutate(Cohort="DECAMP") %>% mutate(sid=Case) %>% select(-Case, -cluster)
+decamp_full_imaging_cluster <- left_join(decamp_pre1,decamp_clusters) %>% mutate(PMA_10 = Standard_PMA/100)
+```
+
+### Number of clusters:
+Methods notes: The optimal number of clusters was selected by evaluating the average silhouette width and total within sums of squares for 1-10 clusters in the COPDGene cohort.  Based on these results k=3 was selected.
+
+```{r number_of_clusters}
+# optimal number of clusters using COPDGene data
+set.seed(9)
+# Elbow method
+df <- copd_cluster_pre[,2:6]
+fviz_nbclust(df, kmeans, method = "wss") +
+  geom_vline(xintercept = 4, linetype = 2)+
+  labs(subtitle = "Elbow method")
+# Silhouette method
+fviz_nbclust(df, kmeans, method = "silhouette")+
+  labs(subtitle = "Silhouette method")
+```
+
+### Cluster appearance:
+Methods notes: Figure X demonstrates the overlap of the DECAMP imaging clusters projected onto the first two principal components of the COPDGene imaging features.
+
+```{r cluster_plot,fig.width=10,fig.height=7}
+# conduct PCA on training dataset (COPDGene)
+pc <- c(1,2)
+pca <- prcomp(copd_imaging_cluster[,2:6], retx=TRUE)
+expl.var <- round(pca$sdev^2/sum(pca$sdev^2)*100) # percent explained variance
+copd_imaging_cluster_pca <- cbind(copd_imaging_cluster,pca$x[,pc]) %>% select(sid,PC1,PC2,Cohort,cluster_decamp)
+
+# prediction of PCs for validation dataset (DECAMP)
+pred <- predict(pca, newdata=decamp_imaging_clusters[,1:5])
+decamp_imaging_cluster_pca <- cbind(decamp_imaging_clusters,pred[,pc]) %>% select(sid,PC1,PC2,Cohort,cluster_decamp)
+
+###Plot result
+copd_decamp_imaging_cluster_pca <- full_join(copd_imaging_cluster_pca,decamp_imaging_cluster_pca)
+copd_decamp_imaging_cluster_pca <- copd_decamp_imaging_cluster_pca %>% mutate(Cluster=cluster_decamp)
+
+copd_decamp_imaging_cluster_pca_plot <- ggplot(copd_decamp_imaging_cluster_pca, aes(x=PC1,y=PC2,colour=Cluster,shape=Cohort)) + 
+  geom_point()
+
+copd_decamp_imaging_cluster_pca_plot
+```
+
+## Comparison of clusters with regard to baseline imaging characteristcs:
+Methods notes: Global comparisons between means made using ANOVA.  Pairwise comparisons made using t-tests.
+
+### COPDGene
+```{r cluster_imaging_copdgene,fig.width=10,fig.height=10}
+cluster_comparisons <- list( c("A", "B"), c("B", "C"), c("A", "C") )
+
+copd_emph_cluster_plot =  ggplot(copd_full_imaging, aes(cluster_decamp,percent_emphysema)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Percentage Emphysema") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 80, method="anova")     # Add global p-value
+copd_ild_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,percent_ild)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Percentage Interstitial Changes") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 32, method="anova")     # Add global p-value
+copd_awt_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,awt_seg_thirona)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Airway Wall Thickness") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 2.2, method="anova")     # Add global p-value
+copd_pma_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,PMA)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("PMA") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 120, method="anova")     # Add global p-value
+
+plot_grid(copd_emph_cluster_plot,copd_ild_cluster_plot,copd_awt_cluster_plot,copd_pma_cluster_plot, ncol=2)
+```
+
+### DECAMP
+```{r cluster_imaging_decamp,fig.width=10,fig.height=10}
+decamp_emph_cluster_plot =  ggplot(decamp_full_imaging_cluster, aes(cluster_decamp,Percent_Emphysema)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Percentage Emphysema") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 80, method="anova")     # Add global p-value
+decamp_ild_cluster_plot = ggplot(decamp_full_imaging_cluster, aes(cluster_decamp,Percent_ILA)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Percentage Interstitial Changes") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 50, method="anova")     # Add global p-value
+decamp_awt_cluster_plot = ggplot(decamp_full_imaging_cluster, aes(cluster_decamp,WallThickness)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Airway Wall Thickness") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 3, method="anova")     # Add global p-value
+decamp_pma_cluster_plot = ggplot(decamp_full_imaging_cluster, aes(cluster_decamp,PMA_10)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("PMA") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 100, method="anova")     # Add global p-value
+
+
+plot_grid(decamp_emph_cluster_plot,decamp_ild_cluster_plot,decamp_awt_cluster_plot,decamp_pma_cluster_plot, ncol=2)
+```
+
+## Baseline clinical characteristics in COPDGene
+### Table 1:
+```{r copdgene_table_1}
+
+### formatting variables ###
+
+label(copd_full_imaging$age_enroll) <- "Age"
+units(copd_full_imaging$age_enroll) <- "Years"
+
+label(copd_full_imaging$bmi) <- "BMI"
+units(copd_full_imaging$bmi) <- "kg/m<sup>2</sup>"
+
+label(copd_full_imaging$fev1pp_utah) <- "Forced Expiratory Volume in 1 Second"
+units(copd_full_imaging$fev1pp_utah) <- "Percent Predicted"
+
+label(copd_full_imaging$percent_ild) <- "Interstitial Features"
+units(copd_full_imaging$percent_ild) <- "Percent Lung Volume"
+
+label(copd_full_imaging$percent_emphysema) <- "Emphysema"
+units(copd_full_imaging$percent_emphysema) <- "Percent Lung Volume"
+
+label(copd_full_imaging$PMA) <- "Pectoralis Muscle Area"
+units(copd_full_imaging$PMA) <- "cm<sup>2</sup>"
+
+label(copd_full_imaging$awt_seg_thirona) <- "Airway Wall Thickness"
+units(copd_full_imaging$awt_seg_thirona) <- "mm"
+
+copd_full_imaging$sex.f <- as.factor(copd_full_imaging$sex)
+label(copd_full_imaging$sex.f) <- "Gender"
+
+copd_full_imaging$race.f <- factor(copd_full_imaging$race, levels=1:2, labels=c("White","Black"))
+label(copd_full_imaging$race.f) <- "Race"
+
+copd_full_imaging$smok_cig_now.f <- factor(copd_full_imaging$smok_cig_now, levels=0:1, labels=c("Former Smoker","Current Smoker"))
+label(copd_full_imaging$smok_cig_now.f) <- "Current Smoking Status"
+
+copd_full_imaging$by_marker = 1
+copd_full_imaging$by_marker.f = factor(copd_full_imaging$by_marker, levels=1, labels=c("COPDGene"))
+
+### define function ###
+
+getTable1Stats <- function(x, digits = 0, ...){
+  getDescriptionStatsBy(x = x, 
+                        by = copd_full_imaging$by_marker.f,
+                        show_all_values = TRUE,
+                        use_units = TRUE,
+                        NEJMstyle = TRUE,
+                        ...)
+  
+}
+
+### calculate individual values ###
+t1 <- list()
+t1[["Age"]] <- getTable1Stats(copd_full_imaging$age_enroll, digits=1)
+t1[["BMI"]] <- getTable1Stats(copd_full_imaging$bmi, digits=1)
+t1[["Forced Expiratory Volume in 1 Seconds"]] <- getTable1Stats(copd_full_imaging$fev1pp_utah, digits=1)
+t1[["Interstitial Features"]] <- getTable1Stats(copd_full_imaging$percent_ild, digits=1)
+t1[["Emphysema"]] <- getTable1Stats(copd_full_imaging$percent_emphysema, digits=1)
+t1[["Pectoralis Muscle Area"]] <- getTable1Stats(copd_full_imaging$PMA, digits=1)
+t1[["Airway Wall Thickness"]] <- getTable1Stats(copd_full_imaging$awt_seg_thirona, digits=2)
+t1[["Gender"]] <- getTable1Stats(copd_full_imaging$sex.f)
+t1[["Race"]] <- getTable1Stats(copd_full_imaging$race.f)
+t1[["Current Smoking Status"]] <- getTable1Stats(copd_full_imaging$smok_cig_now.f)
+
+mergeDesc(t1,
+          htmlTable_args = list(css.rgroup = "",
+                                caption  = "Basic descriptive statistics from the COPDGene Dataset",
+                                align="l",
+                                align.header="l",
+                                css.cell = "padding-left: .8em; padding-right: .8em;",
+                                css.header = "padding-left: .8em; padding-right: .8em;"))
+
+```
+
+
+### Comparisons based on clusters:
+Methods notes: Global comparisons between means made using ANOVA.  Pairwise comparisons made using t-tests.
+```{r clinical_baseline,fig.width=10,fig.height=10}
+
+fev1_cluster_plot =  ggplot(copd_full_imaging, aes(cluster_decamp,fev1pp_utah)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("FEV1") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 220, method="anova")     # Add global p-value
+fvc_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,fvcpp_utah)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("FVC") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 220, method="anova")     # Add global p-value
+sixmin_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,distwalked)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("6 Minute Walk Distance") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 3800, method="anova")     # Add global p-value
+sgrq_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,sgrq_score_total)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("SGRQ") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 150, method="anova")     # Add global p-value
+
+plot_grid(fev1_cluster_plot,fvc_cluster_plot,sixmin_cluster_plot,sgrq_cluster_plot, ncol=2)
+```
+
+## Comparison of COPDGene clusters with regard to progression over 5 years of follow up:
+### Clinical progression
+1) Annualized rate using ANOVA and ttest for comparisons:
+```{r clinical_progression_rate,fig.width=10,fig.height=5}
+fev1prog_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,fev1_utah_delta)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("FEV1 Change") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 5, method="anova")     # Add global p-value
+distwalked_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,distwalked_delta)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("6MWD Change") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 2500, method="anova")     # Add global p-value
+
+plot_grid(fev1prog_cluster_plot,distwalked_cluster_plot, ncol=2)
+```
+
+2) Mixed effects model using random intercepts and slopes:
+Notes on interpretation:
+- With regard to FEV1 progression.  The results are expressed for percent predicted FEV1. Briefly, over the course of follow up, those individuals in the emphysema predominant cluster lost 0.66% more FEV1% (absolute change) per year than those in the reference (resiliant) group (p<0.001).  No such effect was seen in the interstitial predominant group (p=0.703).
+- With regard to six minute walk distance. The results are expressed in feet.  Briefly, over the course of follow up, those individuals in the emphysema predominant cluster lost 15.9 feet more per year in their six minute walk distance than those in the reference group (p<0.001) and those in the interstitial predominant group lost 6.2 feet more per year in their six minute walk distance than those in the reference (resiliant) group (p=0.007).
+
+```{r clinical_progression_mixed}
+copd_long_clinical$cluster_decamp_f <- factor(copd_long_clinical$cluster_decamp) # setup comparisons
+contrasts(copd_long_clinical$cluster_decamp_f) <- contr.treatment(3, base=1) # setup comparisons
+
+fev1_prog_uni_fit <- lmer(fev1pp_utah ~ years + cluster_decamp_f*years + (years||sid),data=copd_long_clinical)
+summary(fev1_prog_uni_fit)
+anova(fev1_prog_uni_fit)
+
+distwalked_prog_uni_fit <- lmer(distwalked ~ years + cluster_decamp_f*years + (years||sid),data=copd_long_clinical)
+summary(distwalked_prog_uni_fit)
+anova(distwalked_prog_uni_fit)
+```
+
+Additional notes: Would probably only include the mixed effects models but figures provided for reference and could be included.
+
+### Radiographic (emphysema) progression in COPDGene:
+
+1) Annualized rate using ANOVA and ttest for comparisons (NB: Would NOT use for final results due to issues with repeated tests and scanner differences over time.  Shown here only for reference)
+```{r remphysema_progression_rate}
+emph_prog_cluster_plot =  ggplot(copd_full_imaging_2, aes(cluster_decamp,percent_emphysema_rate)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Annual Rate of Emphysema Progression") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+
+emph_prog_cluster_plot
+```
+
+2) Mixed effects model using random intercepts and slopes.
+Methods notes: Note that this analysis is limited to those individuals who were scanned using the same scanner make and model for both visits (n=2354)
+
+Results notes: The results are expressed in percentage of lung occupied by emphysema.  Briefly, over the course of follow up, those individuals in the emphysema predominant cluster gained 0.30% more emphysema per year than those in the reference group (p<0.001) and those in the interstitial predominant group gained 0.13% more emphysema per year than those in the reference (resiliant) group (p=0.011).
+
+```{r emphysema_progression_mixed}
+copd_long_full_same_scan$cluster_decamp_f <- factor(copd_long_full_same_scan$cluster_decamp) # setup comparisons
+contrasts(copd_long_full_same_scan$cluster_decamp_f) <- contr.treatment(3, base=1) # setup comparisons
+
+emphysema_prog_uni_fit <- lmer(percent_emphysema ~ years + cluster_decamp_f*years + (years||sid),data=copd_long_full_same_scan)
+summary(emphysema_prog_uni_fit)
+anova(emphysema_prog_uni_fit)
+```
+
+Additional notes: Would probably only include the mixed effects models but figures provided for reference and could be included.
+
+## Mortality of the clusters in COPDGene
+```{r mortality,fig.width=10,fig.height=7}
+# kaplan meier curve for mortality
+km_fit <- survfit(Surv(days_followed, vital_status) ~ cluster_decamp, data=copd_full_imaging)
+ggsurvplot(km_fit, data=copd_full_imaging, 
+           risk.table=TRUE,
+           pval = TRUE,
+           break.time.by = 500,
+           ggtheme = theme_minimal(),
+           risk.table.y.text.col = T,
+           risk.table.y.text = FALSE,
+           legend.title = "Clusters",
+           legend.labs = c("A","B","C"))
+```
+
+## Exacerbations in COPDGene
+
+### Odds of Exacerbation
+Methods notes: Odds of exacerbation during follow-up evaluated using logisitic regression adjusted for age, sex, race, current smoking status, FEV1pp, SGRQ, GERD and exacerbation in the year prior to enrollment.
+
+Results notes: Those individuals in the emphysema predominant cluster had a 6.0% higher odds of exacerbation during follow-up than those in the resiliant group (OR: 1.06, CI: 1.01-1.11, p=0.018).  No such effect as seen for the interstitial predominant group (OR: 1.01, CI: 0.98-1.04, p=0.616).
+
+```{r exacerbation_odds_multi}
+copd_full_imaging$cluster_decamp_f <- factor(copd_full_imaging$cluster_decamp)
+contrasts(copd_full_imaging$cluster_decamp_f) <- contr.treatment(3, base=1)
+
+exacerbation_fit_Aref <- glm(reportedExacerbation ~ cluster_decamp_f + age_visit + gender + race + smok_cig_now +
+                          fev1pp_utah + priorexacerbation + sgrq_score_total +
+                          gastro_esoph_reflx, data=copd_full_imaging)
+cbind(OR = exp(coef(exacerbation_fit_Aref)), 
+      exp(confint(exacerbation_fit_Aref)), 
+      p = coef(summary(exacerbation_fit_Aref))[,4])
+```
+
+
+### Exacerbation Rate by Cluster
+
+1) Multivariable analysis.
+
+Methods notes: Multivariable zero-inflated negative binomial regression with the same adjustments as for logistic regression above. Time scale term included to account for varying durations of follow-up.
+
+Results notes: Those individuals in the emphysema predominant group had 32% more exacerbations during follow up than those in the reference (resilient) cluster (IRR=1.32, CI: 1.12-1.56, p=0.001).  Those individuals in the interstitial predominant group had 14% more exacerbations during follow up than those in the reference (resilient) group (IRR=1.14, CI: 1.00-1.30, p=0.043).
+
+```{r exacerbation_IRR_multi}
+copd_full_imaging_follow <- copd_full_imaging %>% mutate(lyears = ifelse(Years_Followed>0, log(Years_Followed), 0))
+
+rate_exac_multi <- zeroinfl(Total_Exacerbations ~ cluster_decamp_f + age_visit + gender + race + smok_cig_now +
+                              fev1pp_utah + priorexacerbation + sgrq_score_total +
+                              gastro_esoph_reflx, data=copd_full_imaging_follow, dist="negbin", offset=lyears, EM=TRUE)
+summary(rate_exac_multi)
+cbind(IRR = exp(coef(rate_exac_multi)), 
+      exp(confint(rate_exac_multi)))[2:3,]
+```
+
+2) Figure for univariate analyses using ANOVA for global comparison and ttests for pairwaise comparisons. (Note that this comparison is only in those who reported at least one exacerbation during follow up). Would probably only include the total exacerbation analysis.
+
+```{r exacerbation_plot,fig.width=10,fig.height=5}
+copd_full_imaging <- copd_full_imaging %>% 
+  mutate(exacerbation_rate = Total_Exacerbations/Years_Followed,
+         sev_exacerbation_rate = Total_Severe_Exacer/Years_Followed)
+
+exacerbation_cluster_plot =  ggplot(subset(copd_full_imaging, priorexacerbation == 1), aes(cluster_decamp,exacerbation_rate)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Exacerbation Rate") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 25)     # Add global p-value
+
+sev_exacerbation_cluster_plot =  ggplot(subset(copd_full_imaging, sev_exacerbation_rate > 0), aes(cluster_decamp,sev_exacerbation_rate)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("Severe Exacerbation Rate") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 20)     # Add global p-value
+
+plot_grid(exacerbation_cluster_plot, sev_exacerbation_cluster_plot)
+```
+
+## Selected Biomarkers by Cluster
+
+Notes: Probably would not include but included here for reference.
+
+```{r biomarkers,fig.width=15,fig.height=30}
+crp_cluster_plot =  ggplot(copd_full_imaging, aes(cluster_decamp,crp)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("CRP") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 75, method="anova")     # Add global p-value
+tgf_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,tgfb1_lap)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("TGFb LAP1") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 25, method="anova")     # Add global p-value
+mmp9_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,mmp9)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("MMP9") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 3500, method="anova")     # Add global p-value
+ager_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,ager)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("AGER") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=30, method="anova")     # Add global p-value
+tnfrsf1b_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,tnfrsf1b)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("TNFFRSF1B") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=35,method="anova")     # Add global p-value
+icam1_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,icam1)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("ICAM1") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=575,method="anova")     # Add global p-value
+serpine1_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,serpine1)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("SERPINE1") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=250,method="anova")     # Add global p-value
+vegfa_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,vegfa)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("VEGF Alpha") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=600,method="anova")     # Add global p-value
+il1a_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,il1a)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("IL1 alpha") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=0.005,method="anova")     # Add global p-value
+ccl20_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,ccl20)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("CCL20") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=2000,method="anova")     # Add global p-value
+il1b_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,il1b)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("IL1 beta") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(label.y=5.15,method="anova")     # Add global p-value
+il1rn_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,il1rn)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("IL1 RN") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+cxcl5_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,cxcl5)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("CXCL5") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+olr1_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,olr1)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("OLR1") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+serpina3_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,serpina3)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("SERPINA3") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+tnfrsf10c_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,tnfrsf10c)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("tnfrsf10c") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+il8_cluster_plot = ggplot(copd_full_imaging, aes(cluster_decamp,il8)) + 
+  geom_boxplot(fill="gray") + 
+  ylab("IL8") +
+  xlab("Cluster") +
+  stat_compare_means(comparisons = cluster_comparisons) + # Add pairwise comparisons p-value
+  stat_compare_means(method="anova")     # Add global p-value
+
+plot_grid(crp_cluster_plot,tgf_cluster_plot,mmp9_cluster_plot,ager_cluster_plot, 
+          tnfrsf1b_cluster_plot,icam1_cluster_plot,serpine1_cluster_plot,vegfa_cluster_plot,
+          il1a_cluster_plot,ccl20_cluster_plot,il1b_cluster_plot,il1rn_cluster_plot,
+          cxcl5_cluster_plot,olr1_cluster_plot,serpina3_cluster_plot,tnfrsf10c_cluster_plot,il8_cluster_plot,ncol=3)
+```
+
+
+
