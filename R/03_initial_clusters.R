@@ -33,9 +33,9 @@ fviz_nbclust(df, kmeans, method = "silhouette")+
 # nboot = 50 to keep the function speedy. 
 # recommended value: nboot= 500 for your analysis.
 # Use verbose = FALSE to hide computing progression.
-set.seed(9)
-fviz_nbclust(df, kmeans, nstart = 25,  method = "gap_stat", nboot = 500)+
-  labs(subtitle = "Gap statistic method")
+# set.seed(9)
+# fviz_nbclust(df, kmeans, nstart = 25,  method = "gap_stat", nboot = 500)+
+#  labs(subtitle = "Gap statistic method")
 
 #########################################################DECAMP##################################################################################################################
 set.seed(9)
