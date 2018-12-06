@@ -10,7 +10,7 @@ copd_clean <- clean_names(copd) %>%
          tlc_pp_race_adjusted=tl_cpp_race_adjusted,
          fvcpp_utah=fv_cpp_utah,
          dlco_raw=d_lco_raw) %>% 
-  remove_empty()
+  remove_empty() 
 ## calculate change variables ##
 # remove subset of variables that we are interested in their change over time
 copd_change = copd_clean %>% select(sid,visitnum,height_cm,weight_kg,
