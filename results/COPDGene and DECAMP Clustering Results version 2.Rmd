@@ -549,7 +549,24 @@ smwd_sum_table <- cbind(summary(distwalked_prog_uni_fit)[[10]][5:6,1],
                         confint(distwalked_prog_uni_fit)[8:9,],
                         summary(distwalked_prog_uni_fit)[[10]][5:6,5])
 
+emph_sum_table <- cbind(summary(emphysema_prog_uni_fit)[[10]][5:6,1],
+                        confint(emphysema_prog_uni_fit)[8:9,],
+                        summary(emphysema_prog_uni_fit)[[10]][5:6,5])
 
+
+cont_multi_table <- rbind(fev1_sum_table,smwd_sum_table,emph_sum_table)
+
+row.names(cont_multi_table) <- c("Emphysema Predominant","Interstitial Predominant",
+                                 "Emphysema Predominant","Interstitial Predominant",
+                                 "Emphysema Predominant","Interstitial Predominant")
+kable(cont_multi_table,row.names=TRUE,col.names=c("Difference Compared to Preserved","Lower Limit","Upper Limit","p"),
+      align="c",digits=c(2,2,2,9)) %>% 
+  add_header_above(c(" " = 2, "Confidence Interval" = 2, " " = 1)) %>%
+  kable_styling(bootstrap_options = "striped", full_width = F) %>% 
+  footnote(general="Differences in change during follow-up expressed as compared to preseved cluster") %>% 
+  group_rows("Percent Predicted Forced Expiratory Volume in One Second",1,2) %>% 
+  group_rows("Six Minute Walk Distance (Feet)",3,4) %>% 
+  group_rows("Percent Emphysema",5,6)
 ```
 
 
