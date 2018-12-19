@@ -71,3 +71,44 @@ emphysema_prog_multi_fit <- lmer(percent_emphysema ~ age_visit + gender + race +
 summary(emphysema_prog_multi_fit)
 anova(emphysema_prog_multi_fit)
 
+################# interstitial ############################
+ild_fev1_change_fit <- lm(change_p1_p2_fev1_ml.y ~ percent_ild_delta + percent_emphysema_delta + percent_ild + percent_emphysema +
+                       age_visit + gender + race + smok_cig_now + ats_pack_years + bmi +
+                       fev1_utah, data=copd_full_imaging_2)
+ild_fev1_change_fit_table <- 
+  (cbind(effect = coef(ild_fev1_change_fit), 
+      confint(ild_fev1_change_fit), 
+      p = coef(summary(ild_fev1_change_fit))[,4]))[2,]
+
+copd_full_imaging_2 <- copd_full_imaging_2 %>% mutate(fvc_utah_delta_ml=fvc_utah_delta*1000)
+ild_fvc_change_fit <- lm(fvc_utah_delta_ml ~ percent_ild_delta + percent_emphysema_delta + percent_ild + percent_emphysema +
+                            age_visit + gender + race + smok_cig_now + ats_pack_years + bmi + 
+                            fvc_utah, data=copd_full_imaging_2)
+ild_fvc_change_fit_table <- 
+(cbind(effect = coef(ild_fvc_change_fit), 
+      confint(ild_fvc_change_fit), 
+      p = coef(summary(ild_fvc_change_fit))[,4]))[2,]
+
+ild_lungfx_multi_table <- rbind(ild_fev1_change_fit_table,ild_fvc_change_fit_table)
+
+row.names(ild_lungfx_multi_table) <- c("Forced Expiratory Volume in 1 Second",
+                                       "Forced Vital Capacity")
+kable(ild_lungfx_multi_table,row.names=TRUE,col.names=c("Change","Lower Limit","Upper Limit","p"),
+      align="c",digits=c(2,2,2,12)) %>% 
+  add_header_above(c(" " = 2, "Confidence Interval" = 2, " " = 1)) %>%
+  kable_styling(bootstrap_options = c("striped","condensed"), full_width = FALSE) %>% 
+  footnote(number=c("Change in mL expressed per 1% increase in the percentage of lung occupied by interstitial features.",
+                    "Multivariable analyses adjusted for baseline age, sex, race, smoking status, pack years, body mass index, lung function (FEV1 and FVC respectively), the percentage of lung occupied by interstitial features, the percentage of lung occupied by emphysema, and the change in the percentage of lung occupied by emphysema."))
+
+copd_full_imaging_2 <- copd_full_imaging_2 %>% 
+  mutate(percent_ild_gain=(ifelse(percent_ild_delta>0,1,0))) %>% 
+  mutate(fvc_ml_loss=(ifelse(fvc_utah_delta<0,1,0)))
+
+ggplot(copd_full_imaging_2, aes(fvc_utah_delta_ml,percent_emphysema_delta)) + geom_point() + geom_smooth(method="lm")
+
+fvc_loss_fit <- glm(fvc_ml_loss ~ percent_ild_gain + percent_ild + percent_emphysema +
+                      age_visit + gender + race + smok_cig_now + ats_pack_years + bmi + 
+                      fvc_utah, data=copd_full_imaging_2, family="binomial")
+summary(fvc_loss_fit)
+exp(coef(fvc_loss_fit))
+exp(confint(fvc_loss_fit))

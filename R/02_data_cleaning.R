@@ -122,7 +122,7 @@ copd_full_imaging = copd_full %>% filter(!is.na(percent_ild), !is.na(percent_emp
 ## 1) wide format file with delta variables then will then merge with baseline file in wide format for rate calculations
 ## 2) file with visit number two that can then be merged (in addition to baseline LH data) with base file to create long format file for longitudinal anlysis using mixed methods
 
-### import ECLIPSE baseline LH dataset ###
+### import COPDGene round 2 LH dataset ###
 COPDGene_LH_2_raw <- read_csv("data/raw_data/COPDGene2_localHistogram_parenchymaPhenotypes_20180319_wideFormat.csv")
 COPDGene_LH_2_pre1 <- clean_names(COPDGene_LH_2_raw)
 
